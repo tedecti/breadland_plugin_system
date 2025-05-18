@@ -1,4 +1,28 @@
-name: breadland-enul_qkixedqq_mnawzd_xe_fpp_xvy
-version: '1.0'
-main: me.tedecti.breadland.Breadland
+name: BreadlandPlugin
+version: '${version}'
+main: me.tedecti.BreadlandPlugin
 api-version: '1.21'
+authors: [tedecti]
+description: A modular plugin for server events and features
+depend: [ProtocolLib]
+
+commands:
+  deathnote:
+    description: Creates a Death Note book
+    usage: /deathnote
+    permission: breadland.deathnote.create
+  godvanish:
+    description: Makes you invisible to everyone except one player
+    usage: /godvanish <player>
+    permission: breadland.godvanish
+
+permissions:
+  breadland.deathnote.create:
+    description: Allows creating Death Notes
+    default: op
+  breadland.deathnote.identify:
+    description: Allows identifying Death Notes
+    default: op
+  breadland.godvanish:
+    description: Allows using GodVanish command
+    default: op

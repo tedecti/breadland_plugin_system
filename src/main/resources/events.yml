@@ -1,0 +1,18 @@
+# Death Note Configuration
+
+death-note:
+  enabled: true
+  death-delay: 10 # Delay in seconds before player dies
+  messages:
+    prefix: "&8[&4Тетрадь смерти&8] &r"
+    created: "&4Вы были награждены богом смерти.!"
+    received: "&4Вы были награждены богом смерти."
+    given: "&4Вы выдали тетрадь смерти игроку %player%!"
+    activated: "&4Отсчет пошел. %player% умрет через минуту."
+    player-not-found: "&cИгрок не найден."
+    no-permission: "&cУ вас нет прав на использование этой команды!"
+    player-only: "&cЭта команда может быть использована только игроком!"
+    usage: "&cИспользование: /deathnote <имя игрока>"
+    death: "&4%player% &cумер от сердечного приступа."
+    not-your-book: "&cВы не являетесь владельцем этой тетради."
+    cooldown: "&cТетрадь не активна. Осталось: %minutes% мин. %seconds% сек." 

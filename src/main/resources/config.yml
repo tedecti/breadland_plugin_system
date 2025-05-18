@@ -1,0 +1,6 @@
+# BreadlandPlugin Configuration
+
+# Event Settings
+events:
+  enabled: true
+  debug: false
