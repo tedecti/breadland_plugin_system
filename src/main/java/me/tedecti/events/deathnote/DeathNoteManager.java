@@ -34,6 +34,7 @@ public class DeathNoteManager implements Listener {
     private final Map<UUID, Long> cooldowns; // Book UUID -> Cooldown End Time
     private final NamespacedKey deathNoteKey;
     private final NamespacedKey ownerKey;
+    private final NamespacedKey ruleBookKey;
     private FileConfiguration config;
     private static final long COOLDOWN_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
 
@@ -44,6 +45,7 @@ public class DeathNoteManager implements Listener {
         this.cooldowns = new HashMap<>();
         this.deathNoteKey = new NamespacedKey(plugin, "death_note");
         this.ownerKey = new NamespacedKey(plugin, "death_note_owner");
+        this.ruleBookKey = new NamespacedKey(plugin, "death_note_rules");
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
         reloadConfig();
     }
@@ -55,7 +57,7 @@ public class DeathNoteManager implements Listener {
         }
     }
 
-    private ItemStack createRuleBook() {
+    private ItemStack createRuleBook(Player owner) {
         ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
         BookMeta meta = (BookMeta) book.getItemMeta();
         
@@ -84,6 +86,8 @@ public class DeathNoteManager implements Listener {
 
 
             meta.setPages(pages);
+            meta.getPersistentDataContainer().set(ruleBookKey, PersistentDataType.STRING, "true");
+            meta.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, owner.getUniqueId().toString());
             book.setItemMeta(meta);
         }
         
@@ -101,7 +105,7 @@ public class DeathNoteManager implements Listener {
             book.setItemMeta(meta);
             
             // Выдаем книгу правил вместе с тетрадью
-            owner.getInventory().addItem(createRuleBook());
+            owner.getInventory().addItem(createRuleBook(owner));
         }
         
         return book;
@@ -112,6 +116,13 @@ public class DeathNoteManager implements Listener {
         
         BookMeta meta = (BookMeta) item.getItemMeta();
         return meta != null && meta.getPersistentDataContainer().has(deathNoteKey, PersistentDataType.STRING);
+    }
+
+    public boolean isRuleBook(ItemStack item) {
+        if (item == null || item.getType() != Material.WRITTEN_BOOK) return false;
+        
+        BookMeta meta = (BookMeta) item.getItemMeta();
+        return meta != null && meta.getPersistentDataContainer().has(ruleBookKey, PersistentDataType.STRING);
     }
 
     public boolean canUseDeathNote(Player player, ItemStack book) {
@@ -169,6 +180,7 @@ public class DeathNoteManager implements Listener {
         if (!isDeathNote(book)) return;
 
         if (event.isSigning()) {
+            Player player = event.getPlayer();
             BookMeta meta = event.getNewBookMeta();
             String ownerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
             if (ownerUUID != null) {
@@ -178,8 +190,29 @@ public class DeathNoteManager implements Listener {
                     owner.sendMessage("§4Ваша тетрадь была подписана. Вы умерли!");
                 }
             }
-            // Сохраняем подпись, но не удаляем тетрадь
-            event.setNewBookMeta(meta);
+            
+            // Удаляем все тетради смерти у игрока, который пытался подписать
+            forceRemoveDeathNoteFromWorld(player.getUniqueId());
+            player.sendMessage("§4Ваша попытка подписать тетрадь смерти привела к её исчезновению!");
+            event.setCancelled(true); // Отменяем событие подписи
+            
+            // Проверяем в следующем тике, не появилась ли новая книга
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    PlayerInventory inv = player.getInventory();
+                    for (int i = 0; i < inv.getSize(); i++) {
+                        ItemStack item = inv.getItem(i);
+                        if (item != null && item.getType() == Material.WRITABLE_BOOK) {
+                            inv.setItem(i, null);
+                        }
+                    }
+                    // Проверяем оффхенд
+                    if (inv.getItemInOffHand().getType() == Material.WRITABLE_BOOK) {
+                        inv.setItemInOffHand(null);
+                    }
+                }
+            }.runTaskLater(plugin, 1L);
         }
     }
 
@@ -259,16 +292,18 @@ public class DeathNoteManager implements Listener {
         // Проверяем основной инвентарь
         for (int i = 0; i < inventory.getSize(); i++) {
             ItemStack item = inventory.getItem(i);
-            if (item != null && isDeathNote(item)) {
+            if (item != null && (isDeathNote(item) || isRuleBook(item))) {
                 BookMeta meta = (BookMeta) item.getItemMeta();
                 if (meta != null) {
                     String itemOwnerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
                     if (itemOwnerUUID != null && (itemOwnerUUID.equals(ownerUUID.toString()) || ownerUUID == null)) {
                         inventory.setItem(i, null);
-                        String bookId = meta.getPersistentDataContainer().get(deathNoteKey, PersistentDataType.STRING);
-                        if (bookId != null) {
-                            activeDeathNotes.remove(UUID.fromString(bookId));
-                            cooldowns.remove(UUID.fromString(bookId));
+                        if (isDeathNote(item)) {
+                            String bookId = meta.getPersistentDataContainer().get(deathNoteKey, PersistentDataType.STRING);
+                            if (bookId != null) {
+                                activeDeathNotes.remove(UUID.fromString(bookId));
+                                cooldowns.remove(UUID.fromString(bookId));
+                            }
                         }
                     }
                 }
@@ -277,7 +312,7 @@ public class DeathNoteManager implements Listener {
 
         // Проверяем слот брони (если вдруг тетрадь там)
         for (ItemStack item : inventory.getArmorContents()) {
-            if (item != null && isDeathNote(item)) {
+            if (item != null && (isDeathNote(item) || isRuleBook(item))) {
                 BookMeta meta = (BookMeta) item.getItemMeta();
                 if (meta != null) {
                     String itemOwnerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
@@ -290,7 +325,7 @@ public class DeathNoteManager implements Listener {
 
         // Проверяем оффхенд
         ItemStack offhand = inventory.getItemInOffHand();
-        if (offhand != null && isDeathNote(offhand)) {
+        if (offhand != null && (isDeathNote(offhand) || isRuleBook(offhand))) {
             BookMeta meta = (BookMeta) offhand.getItemMeta();
             if (meta != null) {
                 String itemOwnerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
@@ -315,7 +350,7 @@ public class DeathNoteManager implements Listener {
                     org.bukkit.entity.Item item = (org.bukkit.entity.Item) entity;
                     ItemStack itemStack = item.getItemStack();
                     
-                    if (isDeathNote(itemStack)) {
+                    if (isDeathNote(itemStack) || isRuleBook(itemStack)) {
                         BookMeta meta = (BookMeta) itemStack.getItemMeta();
                         if (meta != null) {
                             String itemOwnerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
@@ -336,7 +371,7 @@ public class DeathNoteManager implements Listener {
                         
                         for (int i = 0; i < inventory.getSize(); i++) {
                             ItemStack item = inventory.getItem(i);
-                            if (item != null && isDeathNote(item)) {
+                            if (item != null && (isDeathNote(item) || isRuleBook(item))) {
                                 BookMeta meta = (BookMeta) item.getItemMeta();
                                 if (meta != null) {
                                     String itemOwnerUUID = meta.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
@@ -364,7 +399,7 @@ public class DeathNoteManager implements Listener {
         Iterator<ItemStack> iterator = event.getDrops().iterator();
         while (iterator.hasNext()) {
             ItemStack item = iterator.next();
-            if (isDeathNote(item)) {
+            if (isDeathNote(item) || isRuleBook(item)) {
                 iterator.remove();
             }
         }
