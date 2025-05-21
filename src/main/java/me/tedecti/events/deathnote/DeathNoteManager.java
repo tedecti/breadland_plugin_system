@@ -36,7 +36,7 @@ public class DeathNoteManager implements Listener {
     private final NamespacedKey ownerKey;
     private final NamespacedKey ruleBookKey;
     private FileConfiguration config;
-    private static final long COOLDOWN_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
+    private static final long COOLDOWN_DURATION = 5 * 60 * 1000; // 10 minutes in milliseconds
 
     public DeathNoteManager(BreadlandPlugin plugin) {
         this.plugin = plugin;
@@ -281,6 +281,8 @@ public class DeathNoteManager implements Listener {
                 if (target != null) {
                     Player targetPlayer = plugin.getServer().getPlayer(target);
                     if (targetPlayer != null) {
+                        String time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                        plugin.getLogger().info("[Death Note] Player " + owner.getName() + " killed " + targetPlayer.getName() + " using Death Note at " + time);
                         targetPlayer.setHealth(0);
                     }
                 }

@@ -72,9 +72,9 @@ public class GodVanishManager implements Listener {
             return;
         }
 
-        // Hide from everyone except the target player
+        // Hide from everyone except the target player and operators
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-            if (onlinePlayer.getUniqueId().equals(visibleToUUID)) {
+            if (onlinePlayer.getUniqueId().equals(visibleToUUID) || onlinePlayer.hasPermission("breadland.godvanish")) {
                 onlinePlayer.showPlayer(plugin, vanishedPlayer);
             } else {
                 onlinePlayer.hidePlayer(plugin, vanishedPlayer);
@@ -92,7 +92,7 @@ public class GodVanishManager implements Listener {
             Player vanishedPlayer = Bukkit.getPlayer(entry.getKey());
             if (vanishedPlayer == null) continue;
 
-            if (joiningPlayerUUID.equals(entry.getValue())) {
+            if (joiningPlayerUUID.equals(entry.getValue()) || joiningPlayer.hasPermission("breadland.godvanish")) {
                 joiningPlayer.showPlayer(plugin, vanishedPlayer);
             } else {
                 joiningPlayer.hidePlayer(plugin, vanishedPlayer);
