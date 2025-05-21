@@ -82,7 +82,8 @@ public class DeathNoteManager implements Listener {
                 "§06. Если тетрадь будет уничтожена, все её эффекты останутся в силе.\n\n");
             pages.add(
                 "§07. Владелец тетради не может передать её другому игроку.\n\n" +
-                "§08. Нарушение правил карается смертью.");
+                "§08. Нарушение правил карается смертью.\n\n" +
+                "§09. Тетрадь работает только на игроков в радиусе 1000 блоков, так как вы должны знать жертву в лицо.");
 
 
             meta.setPages(pages);
@@ -236,20 +237,32 @@ public class DeathNoteManager implements Listener {
             GodVanishManager godVanishManager = plugin.getGodVanishManager();
             Player targetPlayerObj = plugin.getServer().getPlayer(targetPlayer);
             
-            if (targetPlayerObj != null && godVanishManager.isDeathGod(targetPlayerObj)) {
-                Player boundPlayer = godVanishManager.getBoundPlayer(targetPlayerObj);
-                if (boundPlayer != null && boundPlayer.getUniqueId().toString().equals(ownerUUID)) {
-                    // Игрок попытался убить своего бога смерти
-                    owner.setHealth(0);
-                    owner.sendMessage("§4Вы посмели написать имя своего бога смерти. Ваша тетрадь уничтожена.");
-                    
-                    // Принудительно удаляем все тетради этого владельца из мира
-                    forceRemoveDeathNoteFromWorld(UUID.fromString(ownerUUID));
-                    
-                    // Очищаем все связанные данные
-                    activeDeathNotes.remove(bookUUID);
-                    cooldowns.remove(bookUUID);
+            if (targetPlayerObj != null) {
+                // Проверяем расстояние между игроками
+                double distance = owner.getLocation().distance(targetPlayerObj.getLocation());
+                if (distance > 1000) {
+                    owner.sendMessage("§4Вы не можете убить этого игрока, так как не знаете его в лицо.");
+                    String time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    plugin.getLogger().info("[Death Note] Player " + owner.getName() + " attempted to kill " + targetPlayerObj.getName() + 
+                        " from " + String.format("%.2f", distance) + " blocks away at " + time);
                     return;
+                }
+
+                if (godVanishManager.isDeathGod(targetPlayerObj)) {
+                    Player boundPlayer = godVanishManager.getBoundPlayer(targetPlayerObj);
+                    if (boundPlayer != null && boundPlayer.getUniqueId().toString().equals(ownerUUID)) {
+                        // Игрок попытался убить своего бога смерти
+                        owner.setHealth(0);
+                        owner.sendMessage("§4Вы посмели написать имя своего бога смерти. Ваша тетрадь уничтожена.");
+                        
+                        // Принудительно удаляем все тетради этого владельца из мира
+                        forceRemoveDeathNoteFromWorld(UUID.fromString(ownerUUID));
+                        
+                        // Очищаем все связанные данные
+                        activeDeathNotes.remove(bookUUID);
+                        cooldowns.remove(bookUUID);
+                        return;
+                    }
                 }
             }
         }
