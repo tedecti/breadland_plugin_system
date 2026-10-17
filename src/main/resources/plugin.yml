@@ -4,12 +4,12 @@ main: me.tedecti.BreadlandPlugin
 api-version: '1.21'
 authors: [tedecti]
 description: A modular plugin for server events and features
-depend: [ProtocolLib]
 
 commands:
   deathnote:
-    description: Creates a Death Note book
-    usage: /deathnote
+    description: Death Note management
+    usage: /deathnote <give|revoke|eyes|list|reload> [player]
+    aliases: [dn]
     permission: breadland.deathnote.create
   godvanish:
     description: Makes you invisible to everyone except one player
@@ -19,6 +19,9 @@ commands:
 permissions:
   breadland.deathnote.create:
     description: Allows creating Death Notes
+    default: op
+  breadland.deathnote.admin:
+    description: Allows revoking notes, offering shinigami eyes, listing entries and reloading
     default: op
   breadland.deathnote.identify:
     description: Allows identifying Death Notes

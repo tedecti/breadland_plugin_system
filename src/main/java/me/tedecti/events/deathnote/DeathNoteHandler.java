@@ -1,21 +1,23 @@
 package me.tedecti.events.deathnote;
 
 import me.tedecti.BreadlandPlugin;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
-import org.bukkit.block.Dispenser;
+import org.bukkit.block.Block;
+import org.bukkit.block.Crafter;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockDispenseEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.player.PlayerEditBookEvent;
+import org.bukkit.event.block.CrafterCraftEvent;
+import org.bukkit.event.entity.EntityRemoveEvent;
+import org.bukkit.event.entity.ItemDespawnEvent;
+import org.bukkit.event.entity.ItemSpawnEvent;
+import org.bukkit.event.inventory.PrepareItemCraftEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.BookMeta;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class DeathNoteHandler implements Listener {
     private final BreadlandPlugin plugin;
@@ -26,67 +28,89 @@ public class DeathNoteHandler implements Listener {
         this.deathNoteManager = deathNoteManager;
     }
 
-    @EventHandler
-    public void onBookEdit(PlayerEditBookEvent event) {
-        ItemStack book = event.getPlayer().getInventory().getItemInMainHand();
-        if (!deathNoteManager.isDeathNote(book)) return;
-
-        // Проверяем, не пытается ли игрок подписать книгу
-        if (event.isSigning()) return;
-
-        BookMeta newMeta = event.getNewBookMeta();
-        List<String> pages = new ArrayList<>(newMeta.getPages());
-        
-        // Get the last written line from the last page
-        String lastPage = pages.get(pages.size() - 1);
-        String[] lines = lastPage.split("\n");
-        String targetPlayer = lines[lines.length - 1].trim();
-
-        // Check if player exists and is online
-        Player target = plugin.getServer().getPlayer(targetPlayer);
-        if (target == null || !target.isOnline()) {
-            event.getPlayer().sendMessage(ChatColor.translateAlternateColorCodes('&', deathNoteManager.getMessage("player-not-found")));
-            return;
-        }
-
-        // Activate the death note
-        deathNoteManager.activateDeathNote(book, targetPlayer, event.getPlayer());
-
-        // Add a new empty line for the next name
-        pages.set(pages.size() - 1, lastPage + "\n");
-        newMeta.setPages(pages);
-        event.setNewBookMeta(newMeta);
-    }
-
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteract(PlayerInteractEvent event) {
-        ItemStack item = event.getItem();
-        if (item == null || !deathNoteManager.isDeathNote(item)) return;
+        if (!event.getAction().isRightClick()) return;
 
-        // Update book appearance based on player permissions
-        deathNoteManager.updateBookAppearance(event.getPlayer(), item);
-    }
-
-    @EventHandler
-    public void onDispenserActivate(BlockDispenseEvent event) {
-        if (!(event.getBlock().getState() instanceof Dispenser)) return;
-        
         ItemStack item = event.getItem();
         if (!deathNoteManager.isDeathNote(item)) return;
 
-        String targetPlayer = deathNoteManager.getTargetPlayer(item);
-        if (targetPlayer != null) {
+        Player player = event.getPlayer();
+        Block block = event.getClickedBlock();
+        // Сундуки, двери и т.п. открываются как обычно; кафедра — нет, иначе книгу прочитают все
+        if (block != null && block.getType() != Material.LECTERN && block.getType().isInteractable() && !player.isSneaking()) {
+            return;
+        }
+
+        event.setUseItemInHand(Event.Result.DENY);
+        event.setUseInteractedBlock(Event.Result.DENY);
+
+        EquipmentSlot hand = event.getHand() == null ? EquipmentSlot.HAND : event.getHand();
+        if (item.getType() == Material.WRITABLE_BOOK) {
+            // Тетрадь из версии 1.x: меняем на новую
+            deathNoteManager.convertLegacyNotes(player.getInventory());
+            item = player.getInventory().getItem(hand);
+            if (!deathNoteManager.isDeathNote(item)) return;
+        }
+
+        deathNoteManager.updateBookAppearance(player, item);
+        deathNoteManager.openNote(player, item);
+    }
+
+    @EventHandler
+    public void onPrepareCraft(PrepareItemCraftEvent event) {
+        // Копирование подписанной книги размножило бы тетрадь
+        for (ItemStack ingredient : event.getInventory().getMatrix()) {
+            if (deathNoteManager.isDeathNote(ingredient) || deathNoteManager.isRuleBook(ingredient)) {
+                event.getInventory().setResult(null);
+                return;
+            }
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onCrafterCraft(CrafterCraftEvent event) {
+        if (!(event.getBlock().getState() instanceof Crafter crafter)) return;
+        for (ItemStack ingredient : crafter.getInventory().getContents()) {
+            if (deathNoteManager.isDeathNote(ingredient) || deathNoteManager.isRuleBook(ingredient)) {
+                event.setCancelled(true);
+                return;
+            }
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onItemSpawn(ItemSpawnEvent event) {
+        Item item = event.getEntity();
+        if (!deathNoteManager.isDeathNote(item.getItemStack())) return;
+
+        // Выброшенная тетрадь не горит в лаве и не исчезает со временем
+        item.setInvulnerable(true);
+        item.setUnlimitedLifetime(true);
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onItemDespawn(ItemDespawnEvent event) {
+        if (deathNoteManager.isDeathNote(event.getEntity().getItemStack())) {
             event.setCancelled(true);
-            event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), item);
         }
     }
 
     @EventHandler
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        if (deathNoteManager.isDeathNoteDeath(event.getEntity().getName())) {
-            String deathMessage = deathNoteManager.getMessage("death")
-                .replace("%player%", event.getEntity().getName());
-            event.setDeathMessage(ChatColor.translateAlternateColorCodes('&', deathMessage));
-        }
+    public void onItemFallOutOfWorld(EntityRemoveEvent event) {
+        if (event.getCause() != EntityRemoveEvent.Cause.OUT_OF_WORLD || !(event.getEntity() instanceof Item item)) return;
+
+        ItemStack stack = item.getItemStack().clone();
+        NoteRecord note = deathNoteManager.getNote(stack);
+        if (note == null || !note.isActive()) return;
+
+        // Тетрадь, упавшая в пустоту, возвращается к владельцу
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            Player owner = plugin.getServer().getPlayer(note.getOwner());
+            if (owner == null) return;
+            owner.getInventory().addItem(stack).values()
+                .forEach(left -> owner.getWorld().dropItemNaturally(owner.getLocation(), left));
+            deathNoteManager.sendMessage(owner, "note-returned");
+        });
     }
-} 
+}

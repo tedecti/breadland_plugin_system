@@ -2,17 +2,100 @@
 
 death-note:
   enabled: true
-  death-delay: 10 # Delay in seconds before player dies
+  death-delay: 40 # Seconds until death when no time is written
+  min-delay: 10 # Shortest time that can be written, in seconds
+  max-delay: 3600 # Longest time that can be written, in seconds
+  cooldown: 300 # Seconds before the same note can be used again
+
+  # "Know the victim's face"
+  know-face:
+    # none   - anyone can be written
+    # radius - the victim must be online, in the same world and within `radius` blocks
+    # seen   - the owner must have seen the victim (in view, not behind walls) within `memory-minutes`
+    # face   - like seen, but the victim must be facing the owner and not hide their face
+    mode: face
+    radius: 1000
+    view-distance: 48 # Blocks
+    fov: 140 # Owner's field of view, degrees
+    face-angle: 120 # How directly the victim must face the owner, degrees
+    memory-minutes: 1440 # How long a face is remembered; 0 = forever
+    invisibility-hides-face: true
+    concealing-helmets: [CARVED_PUMPKIN, PLAYER_HEAD, ZOMBIE_HEAD, SKELETON_SKULL, WITHER_SKELETON_SKULL, CREEPER_HEAD, PIGLIN_HEAD, DRAGON_HEAD]
+    check-interval-ticks: 10
+
+  # Causes that can be written. Text matching none of the aliases falls back to default-cause.
+  # Effects: none, fire, lightning, explosion, drown, fall, freeze
+  default-cause: heart-attack
+  causes:
+    heart-attack:
+      name: "Сердечный приступ"
+      aliases: ["сердечный приступ", "сердце", "инфаркт", "приступ"]
+      effect: none
+      death-message: "&4%player% &cумер от сердечного приступа."
+    fire:
+      name: "Сгорел"
+      aliases: ["сгорел", "сгорит", "огонь", "пожар", "сожж", "огн"]
+      effect: fire
+      death-message: "&4%player% &cсгорел заживо."
+    lightning:
+      name: "Молния"
+      aliases: ["молни", "гроз"]
+      effect: lightning
+      death-message: "&4%player% &cбыл поражён молнией."
+    explosion:
+      name: "Взрыв"
+      aliases: ["взрыв", "взорв"]
+      effect: explosion
+      death-message: "&4%player% &cпогиб при взрыве."
+    drown:
+      name: "Утонул"
+      aliases: ["утонул", "утонет", "утоп", "захлебн"]
+      effect: drown
+      death-message: "&4%player% &cутонул."
+    fall:
+      name: "Разбился"
+      aliases: ["упал", "упадёт", "упадет", "разбил", "падени"]
+      effect: fall
+      death-message: "&4%player% &cразбился насмерть."
+    freeze:
+      name: "Замёрз"
+      aliases: ["замёрз", "замерз", "холод", "мороз"]
+      effect: freeze
+      death-message: "&4%player% &cзамёрз насмерть."
+
   messages:
     prefix: "&8[&4Тетрадь смерти&8] &r"
-    created: "&4Вы были награждены богом смерти.!"
     received: "&4Вы были награждены богом смерти."
     given: "&4Вы выдали тетрадь смерти игроку %player%!"
-    activated: "&4Отсчет пошел. %player% умрет через минуту."
+    already-owner: "&cУ игрока %player% уже есть тетрадь. Сначала: /deathnote revoke %player%"
+    countdown-started: "&4%player% умрёт через %time%. Причина: %cause%."
     player-not-found: "&cИгрок не найден."
     no-permission: "&cУ вас нет прав на использование этой команды!"
-    player-only: "&cЭта команда может быть использована только игроком!"
-    usage: "&cИспользование: /deathnote <имя игрока>"
-    death: "&4%player% &cумер от сердечного приступа."
+    usage: "&cИспользование: /deathnote <give|revoke|eyes|list|reload> [игрок]"
+    reloaded: "&aКонфигурация тетради перезагружена."
     not-your-book: "&cВы не являетесь владельцем этой тетради."
-    cooldown: "&cТетрадь не активна. Осталось: %minutes% мин. %seconds% сек." 
+    note-not-in-hands: "&cТетрадь должна быть при вас."
+    note-crumbled: "&8Тетрадь рассыпалась в прах в ваших руках."
+    note-returned: "&8Ваша тетрадь вернулась к вам из пустоты."
+    cooldown: "&cТетрадь не активна. Осталось: %minutes% мин. %seconds% сек."
+    too-far: "&4Вы не можете убить этого человека, так как не знаете его в лицо."
+    already-written: "&cИмя %player% уже вписано, и смерть уже идёт за ним."
+    bad-time: "&cНе понимаю время. Пишите так: 40с, 5м, 1ч 30м."
+    time-out-of-range: "&cВремя должно быть от %min% до %max%."
+    cause-unknown: "&8Такую смерть тетрадь исполнить не может. Будет сердечный приступ."
+    death-god: "&4Вы посмели написать имя своего бога смерти. Ваша тетрадь уничтожена."
+    not-owner: "&cУ игрока %player% нет тетради."
+    revoked: "&aТетрадь игрока %player% уничтожена."
+    revoked-target: "&8Ваша тетрадь исчезла. Вы больше не её владелец."
+    eyes-offered: "&aИгроку %player% предложена сделка на глаза бога смерти."
+    eyes-not-owner: "&cГлаза можно предложить только владельцу тетради, а %player% им не является."
+    eyes-already: "&cУ игрока %player% уже есть глаза бога смерти."
+    eyes-accepted: "&4Сделка заключена. Теперь вы видите их настоящие имена."
+    eyes-declined: "&8Вы отказались от сделки."
+    eyes-admin-accepted: "&a%player% принял сделку."
+    eyes-admin-declined: "&e%player% отказался от сделки."
+    eyes-none: "&cУ игрока %player% нет глаз бога смерти."
+    eyes-revoked: "&aГлаза бога смерти у %player% отобраны, сердца возвращены."
+    list-empty: "&7Активных записей нет."
+    list-header: "&4Активные записи (%count%):"
+    list-entry: "&c%player% &7← %writer% &8| %cause% &8| &c%time%"
