@@ -35,18 +35,16 @@ import java.util.function.Consumer;
  */
 public class DeathNoteBook {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault());
-    private static final int ENTRIES_PER_PAGE = 3;
+    private static final int ENTRIES_PER_PAGE = 4;
+    private static final int INPUT_WIDTH = 250;
     private static final ClickCallback.Options ONE_USE = ClickCallback.Options.builder()
         .uses(1)
         .lifetime(Duration.ofMinutes(10))
         .build();
 
     private final BreadlandPlugin plugin;
-    private final DeathCauses causes;
-
-    public DeathNoteBook(BreadlandPlugin plugin, DeathCauses causes) {
+    public DeathNoteBook(BreadlandPlugin plugin) {
         this.plugin = plugin;
-        this.causes = causes;
     }
 
     public Book render(Player viewer, NoteRecord note, Runnable onWrite) {
@@ -99,15 +97,9 @@ public class DeathNoteBook {
     }
 
     private Component renderEntry(DeathEntry entry) {
-        DeathCauses.Cause cause = causes.get(entry.getCauseId());
-        String causeLine = entry.getCauseText() == null || entry.getCauseText().isBlank()
-            ? cause.name()
-            : entry.getCauseText();
-
         Component hover = Component.text()
             .append(Component.text(entry.getTargetName(), NamedTextColor.RED, TextDecoration.BOLD)).appendNewline()
             .append(Component.text("Вписано: " + DATE.format(Instant.ofEpochMilli(entry.getWrittenAt())), NamedTextColor.GRAY)).appendNewline()
-            .append(Component.text("Причина: " + cause.name(), NamedTextColor.GRAY)).appendNewline()
             .append(Component.text("Смерть: " + DATE.format(Instant.ofEpochMilli(entry.getDeathAt())), NamedTextColor.GRAY)).appendNewline()
             .append(Component.text("Вписал: " + entry.getWriterName(), NamedTextColor.DARK_GRAY))
             .build();
@@ -132,18 +124,15 @@ public class DeathNoteBook {
         return Component.text()
             .append(name.hoverEvent(HoverEvent.showText(hover)))
             .appendNewline()
-            .append(Component.text(causeLine, NamedTextColor.DARK_GRAY, TextDecoration.ITALIC))
-            .appendNewline()
             .append(status)
             .build();
     }
 
-    /** The native form for writing a name. Calls onSubmit with (name, cause, time). */
+    /** The native form for writing a name. Calls onSubmit with (name, time). */
     public Dialog writeDialog(Component info, WriteHandler onSubmit) {
         List<DialogInput> inputs = List.of(
-            DialogInput.text("name", Component.text("Имя жертвы")).maxLength(16).build(),
-            DialogInput.text("cause", Component.text("Причина смерти (необязательно)")).maxLength(64).build(),
-            DialogInput.text("time", Component.text("Через сколько, например 40с, 5м, 1ч (необязательно)")).maxLength(16).build()
+            DialogInput.text("name", Component.text("Имя жертвы")).width(INPUT_WIDTH).maxLength(16).build(),
+            DialogInput.text("time", Component.text("Время смерти")).width(INPUT_WIDTH).maxLength(16).build()
         );
 
         return Dialog.create(builder -> builder.empty()
@@ -157,7 +146,7 @@ public class DeathNoteBook {
                 ActionButton.builder(Component.text("Вписать", NamedTextColor.DARK_RED))
                     .action(callback((view, audience) -> {
                         if (audience instanceof Player player) {
-                            onSubmit.submit(player, text(view, "name"), text(view, "cause"), text(view, "time"));
+                            onSubmit.submit(player, text(view, "name"), text(view, "time"));
                         }
                     }))
                     .build(),
@@ -203,6 +192,6 @@ public class DeathNoteBook {
 
     @FunctionalInterface
     public interface WriteHandler {
-        void submit(Player writer, String name, String cause, String time);
+        void submit(Player writer, String name, String time);
     }
 }

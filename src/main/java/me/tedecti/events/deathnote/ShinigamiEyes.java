@@ -11,6 +11,8 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.Display;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.inventory.EquipmentSlotGroup;
@@ -34,13 +36,15 @@ public class ShinigamiEyes {
 
     private final BreadlandPlugin plugin;
     private final DeathNoteStorage storage;
+    private final TestDummies dummies;
     private final NamespacedKey healthKey;
     private final Map<UUID, TextDisplay> labels = new HashMap<>(); // Labelled player -> label entity
     private BukkitTask task;
 
-    public ShinigamiEyes(BreadlandPlugin plugin, DeathNoteStorage storage) {
+    public ShinigamiEyes(BreadlandPlugin plugin, DeathNoteStorage storage, TestDummies dummies) {
         this.plugin = plugin;
         this.storage = storage;
+        this.dummies = dummies;
         this.healthKey = new NamespacedKey(plugin, "shinigami_eyes");
     }
 
@@ -113,12 +117,16 @@ public class ShinigamiEyes {
             return;
         }
 
-        // Убираем подписи ушедших игроков
+        // Подписываем игроков и тестовые куклы
+        List<LivingEntity> targets = new ArrayList<>(plugin.getServer().getOnlinePlayers());
+        targets.addAll(dummies.getAll());
+
+        // Убираем подписи ушедших игроков и исчезнувших кукол
         Iterator<Map.Entry<UUID, TextDisplay>> iterator = labels.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<UUID, TextDisplay> entry = iterator.next();
-            Player target = plugin.getServer().getPlayer(entry.getKey());
-            if (target == null || target.isDead() || !entry.getValue().isValid()) {
+            Entity target = plugin.getServer().getEntity(entry.getKey());
+            if (target == null || target.isDead() || !target.isValid() || !entry.getValue().isValid()) {
                 entry.getValue().remove();
                 iterator.remove();
             }
@@ -129,7 +137,7 @@ public class ShinigamiEyes {
             pending.put(entry.getTarget(), entry);
         }
 
-        for (Player target : plugin.getServer().getOnlinePlayers()) {
+        for (LivingEntity target : targets) {
             if (target.isDead() || !isNearAnyHolder(target, holders)) {
                 TextDisplay label = labels.remove(target.getUniqueId());
                 if (label != null) label.remove();
@@ -162,7 +170,7 @@ public class ShinigamiEyes {
         }
     }
 
-    private boolean isNearAnyHolder(Player target, List<Player> holders) {
+    private boolean isNearAnyHolder(LivingEntity target, List<Player> holders) {
         for (Player holder : holders) {
             if (holder != target && holder.getWorld().equals(target.getWorld())
                 && holder.getLocation().distanceSquared(target.getLocation()) <= LABEL_RANGE * LABEL_RANGE) {
@@ -184,8 +192,9 @@ public class ShinigamiEyes {
         });
     }
 
-    private Component buildLabelText(Player target, DeathEntry entry) {
-        Component text = Component.text(target.getName(), NamedTextColor.RED, TextDecoration.BOLD);
+    private Component buildLabelText(LivingEntity target, DeathEntry entry) {
+        String name = target instanceof Player player ? player.getName() : dummies.getName(target.getUniqueId());
+        Component text = Component.text(name == null ? "?" : name, NamedTextColor.RED, TextDecoration.BOLD);
         if (entry != null) {
             text = text.appendNewline()
                 .append(Component.text("† " + TimeFormat.formatClock(entry.getSecondsLeft()), NamedTextColor.DARK_RED));

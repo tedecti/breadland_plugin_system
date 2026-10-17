@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.ChatColor;
 import org.bukkit.Chunk;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
@@ -18,6 +19,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -48,6 +50,7 @@ public class DeathNoteManager implements Listener {
     private final DeathCauses causes;
     private final FaceMemory faceMemory;
     private final ShinigamiEyes eyes;
+    private final TestDummies dummies;
     private final DeathNoteBook book;
     private final Map<UUID, String> dyingFromNote = new HashMap<>(); // Victim -> cause ID (for the death message)
     private final NamespacedKey deathNoteKey;
@@ -61,9 +64,10 @@ public class DeathNoteManager implements Listener {
         this.plugin = plugin;
         this.storage = new DeathNoteStorage(plugin);
         this.causes = new DeathCauses();
-        this.faceMemory = new FaceMemory(plugin, storage);
-        this.eyes = new ShinigamiEyes(plugin, storage);
-        this.book = new DeathNoteBook(plugin, causes);
+        this.dummies = new TestDummies(plugin);
+        this.faceMemory = new FaceMemory(plugin, storage, dummies);
+        this.eyes = new ShinigamiEyes(plugin, storage, dummies);
+        this.book = new DeathNoteBook(plugin);
         this.deathNoteKey = new NamespacedKey(plugin, "death_note");
         this.ownerKey = new NamespacedKey(plugin, "death_note_owner");
         this.ruleBookKey = new NamespacedKey(plugin, "death_note_rules");
@@ -95,6 +99,7 @@ public class DeathNoteManager implements Listener {
         if (saveTask != null) saveTask.cancel();
         faceMemory.shutdown();
         eyes.shutdown();
+        dummies.clear();
         storage.save();
     }
 
@@ -104,6 +109,10 @@ public class DeathNoteManager implements Listener {
 
     public ShinigamiEyes getEyes() {
         return eyes;
+    }
+
+    public TestDummies getDummies() {
+        return dummies;
     }
 
     private long getDefaultDelay() {
@@ -144,7 +153,7 @@ public class DeathNoteManager implements Listener {
         meta.addPages(
             rulesPage("HOW TO USE IT",
                 rule("I", "Человек, чьё имя записано в этой тетради, умрёт."),
-                rule("II", "Если указать причину смерти, всё так и случится. Если нет или она невыполнима — сердечный приступ.")),
+                rule("II", "Смерть наступает от сердечного приступа.")),
             rulesPage(null,
                 rule("III", "Можно указать, через сколько наступит смерть: от " + TimeFormat.formatLong(getMinDelay())
                     + " до " + TimeFormat.formatLong(getMaxDelay()) + ". Иначе — через " + TimeFormat.formatLong(getDefaultDelay()) + "."),
@@ -303,11 +312,10 @@ public class DeathNoteManager implements Listener {
         }
 
         var info = Component.text()
-            .append(Component.text("Время: от " + TimeFormat.formatLong(getMinDelay()) + " до " + TimeFormat.formatLong(getMaxDelay())
-                + ", без указания — " + TimeFormat.formatLong(getDefaultDelay()) + ".", NamedTextColor.GRAY))
+            .append(Component.text("Время смерти: например 40с, 5м, 1ч 30м.", NamedTextColor.GRAY))
             .appendNewline()
-            .append(Component.text("Причины: ", NamedTextColor.GRAY))
-            .append(Component.text(String.join(", ", causes.getAll().stream().map(DeathCauses.Cause::name).toList()), NamedTextColor.WHITE));
+            .append(Component.text("От " + TimeFormat.formatLong(getMinDelay()) + " до " + TimeFormat.formatLong(getMaxDelay())
+                + ". Если не указать — " + TimeFormat.formatLong(getDefaultDelay()) + ".", NamedTextColor.GRAY));
 
         if (faceMemory.usesMemory()) {
             List<String> known = faceMemory.getKnownNames(writer, 12);
@@ -316,7 +324,7 @@ public class DeathNoteManager implements Listener {
                 .append(Component.text(known.isEmpty() ? "никого" : String.join(", ", known), NamedTextColor.WHITE));
         }
 
-        writer.showDialog(book.writeDialog(info.build(), (player, name, cause, time) -> submitEntry(player, bookId, name, cause, time)));
+        writer.showDialog(book.writeDialog(info.build(), (player, name, time) -> submitEntry(player, bookId, name, time)));
     }
 
     private boolean hasNoteWithYou(Player player, UUID bookId) {
@@ -326,7 +334,7 @@ public class DeathNoteManager implements Listener {
         return false;
     }
 
-    private void submitEntry(Player writer, UUID bookId, String name, String causeText, String timeText) {
+    private void submitEntry(Player writer, UUID bookId, String name, String timeText) {
         if (!config.getBoolean("death-note.enabled", true)) return;
 
         NoteRecord note = storage.getNote(bookId);
@@ -352,16 +360,6 @@ public class DeathNoteManager implements Listener {
             return;
         }
 
-        // Только точный ник: частичное совпадение убило бы не того
-        OfflinePlayer target = plugin.getServer().getPlayerExact(name);
-        if (target == null) {
-            target = plugin.getServer().getOfflinePlayerIfCached(name);
-        }
-        if (target == null || target.getName() == null || !target.getName().equalsIgnoreCase(name)) {
-            sendMessage(writer, "player-not-found");
-            return;
-        }
-
         long delay = getDefaultDelay();
         if (!timeText.isEmpty()) {
             delay = TimeFormat.parseSeconds(timeText);
@@ -375,6 +373,21 @@ public class DeathNoteManager implements Listener {
                     "%max%", TimeFormat.formatLong(getMaxDelay()));
                 return;
             }
+        }
+
+        // Только точный ник: частичное совпадение убило бы не того
+        OfflinePlayer target = plugin.getServer().getPlayerExact(name);
+        if (target == null) {
+            target = plugin.getServer().getOfflinePlayerIfCached(name);
+        }
+        if (target == null || target.getName() == null || !target.getName().equalsIgnoreCase(name)) {
+            LivingEntity dummy = dummies.find(name);
+            if (dummy != null) {
+                writeEntry(writer, note, dummy.getUniqueId(), dummies.getName(dummy.getUniqueId()), dummy.getLocation(), delay, true);
+                return;
+            }
+            sendMessage(writer, "player-not-found");
+            return;
         }
 
         Player onlineTarget = target.getPlayer();
@@ -392,40 +405,37 @@ public class DeathNoteManager implements Listener {
             }
         }
 
-        if (!faceMemory.knows(writer, target)) {
+        writeEntry(writer, note, target.getUniqueId(), target.getName(),
+            onlineTarget == null ? null : onlineTarget.getLocation(), delay, false);
+    }
+
+    private void writeEntry(Player writer, NoteRecord note, UUID targetId, String targetName,
+                            Location targetLocation, long delay, boolean dummy) {
+        if (!faceMemory.knows(writer, targetId, targetLocation)) {
             sendMessage(writer, "too-far");
-            logAction(writer.getName() + " attempted to kill " + target.getName() + " without knowing their face");
+            logAction(writer.getName() + " attempted to kill " + targetName + " without knowing their face");
             return;
         }
 
-        if (storage.getPendingEntryFor(target.getUniqueId()) != null) {
-            sendMessage(writer, "already-written", "%player%", target.getName());
+        if (storage.getPendingEntryFor(targetId) != null) {
+            sendMessage(writer, "already-written", "%player%", targetName);
             return;
         }
 
         DeathCauses.Cause cause = causes.getDefault();
-        if (!causeText.isEmpty()) {
-            DeathCauses.Cause matched = causes.match(causeText);
-            if (matched != null) {
-                cause = matched;
-            } else {
-                sendMessage(writer, "cause-unknown");
-            }
-        }
 
         long now = System.currentTimeMillis();
-        DeathEntry entry = new DeathEntry(UUID.randomUUID(), bookId, target.getUniqueId(), target.getName(),
-            writer.getUniqueId(), writer.getName(), cause.id(), causeText, now, now + delay * 1000L, DeathEntry.Status.PENDING);
+        DeathEntry entry = new DeathEntry(UUID.randomUUID(), note.getBookId(), targetId, targetName,
+            writer.getUniqueId(), writer.getName(), cause.id(), "", now, now + delay * 1000L, dummy, DeathEntry.Status.PENDING);
         note.getEntries().add(entry);
         note.setCooldownUntil(now + getCooldownMillis());
         storage.save();
 
         writer.playSound(writer.getLocation(), Sound.ITEM_BOOK_PAGE_TURN, 1f, 0.6f);
         sendMessage(writer, "countdown-started",
-            "%player%", target.getName(),
-            "%time%", TimeFormat.formatLong(delay),
-            "%cause%", cause.name());
-        logAction(writer.getName() + " wrote " + target.getName() + " (" + cause.id() + ", dies in " + delay + "s)");
+            "%player%", targetName,
+            "%time%", TimeFormat.formatLong(delay));
+        logAction(writer.getName() + " wrote " + targetName + (dummy ? " (test dummy)" : "") + " (dies in " + delay + "s)");
     }
 
     // ---------------------------------------------------------------- Countdown
@@ -442,6 +452,11 @@ public class DeathNoteManager implements Listener {
                 writer.sendActionBar(Component.text(entry.getTargetName() + " — " + TimeFormat.formatClock(left), NamedTextColor.DARK_RED));
             }
 
+            if (entry.isDummy()) {
+                tickDummy(entry, now);
+                continue;
+            }
+
             if (victim == null || victim.isDead()) continue;
 
             if (entry.getDeathAt() <= now) {
@@ -450,6 +465,27 @@ public class DeathNoteManager implements Listener {
                 victim.playSound(victim.getLocation(), Sound.ENTITY_WARDEN_HEARTBEAT, 1f, 1f);
             }
         }
+    }
+
+    private void tickDummy(DeathEntry entry, long now) {
+        LivingEntity dummy = dummies.get(entry.getTarget());
+        if (dummy == null) {
+            // Куклу убрали или сервер перезапустили — запись утрачивает силу
+            entry.setStatus(DeathEntry.Status.CANCELLED);
+            storage.save();
+            return;
+        }
+        if (entry.getDeathAt() > now) return;
+
+        logAction(entry.getWriterName() + " killed test dummy " + entry.getTargetName() + " using Death Note");
+        entry.setStatus(DeathEntry.Status.DEAD);
+        storage.save();
+
+        DeathCauses.Cause cause = causes.get(entry.getCauseId());
+        cause.playEffect(dummy);
+        dummies.kill(entry.getTarget());
+        String deathMessage = cause.deathMessage().replace("%player%", "[Кукла] " + entry.getTargetName());
+        plugin.getServer().broadcastMessage(ChatColor.translateAlternateColorCodes('&', deathMessage));
     }
 
     private void killByNote(Player victim, DeathEntry entry) {

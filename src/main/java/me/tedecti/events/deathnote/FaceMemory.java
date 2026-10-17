@@ -6,6 +6,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffectType;
@@ -29,6 +30,7 @@ public class FaceMemory {
 
     private final BreadlandPlugin plugin;
     private final DeathNoteStorage storage;
+    private final TestDummies dummies;
     private BukkitTask task;
 
     private Mode mode = Mode.FACE;
@@ -40,9 +42,10 @@ public class FaceMemory {
     private boolean invisibilityHides;
     private final Set<Material> concealingHelmets = new HashSet<>();
 
-    public FaceMemory(BreadlandPlugin plugin, DeathNoteStorage storage) {
+    public FaceMemory(BreadlandPlugin plugin, DeathNoteStorage storage, TestDummies dummies) {
         this.plugin = plugin;
         this.storage = storage;
+        this.dummies = dummies;
     }
 
     public void load(ConfigurationSection section) {
@@ -95,7 +98,12 @@ public class FaceMemory {
             if (storage.getActiveNoteOf(observer.getUniqueId()) == null) continue;
             if (observer.isDead() || observer.getGameMode() == GameMode.SPECTATOR) continue;
 
-            for (Player target : observer.getWorld().getPlayers()) {
+            List<LivingEntity> targets = new ArrayList<>(observer.getWorld().getPlayers());
+            for (LivingEntity dummy : dummies.getAll()) {
+                if (dummy.getWorld().equals(observer.getWorld())) targets.add(dummy);
+            }
+
+            for (LivingEntity target : targets) {
                 if (target == observer || !observer.canSee(target)) continue;
                 if (sees(observer, target)) {
                     storage.getFaceMemory(observer.getUniqueId()).put(target.getUniqueId(), now);
@@ -105,7 +113,7 @@ public class FaceMemory {
         }
     }
 
-    private boolean sees(Player observer, Player target) {
+    private boolean sees(Player observer, LivingEntity target) {
         Location eye = observer.getEyeLocation();
         Location targetEye = target.getEyeLocation();
         double distanceSquared = eye.distanceSquared(targetEye);
@@ -123,7 +131,9 @@ public class FaceMemory {
         return observer.hasLineOfSight(target);
     }
 
-    private boolean isFaceHidden(Player target) {
+    private boolean isFaceHidden(LivingEntity entity) {
+        // Голова на кукле — это её лицо, а не маска
+        if (!(entity instanceof Player target)) return false;
         if (invisibilityHides && target.hasPotionEffect(PotionEffectType.INVISIBILITY)) return true;
         ItemStack helmet = target.getInventory().getHelmet();
         return helmet != null && concealingHelmets.contains(helmet.getType());
@@ -131,18 +141,25 @@ public class FaceMemory {
 
     /** Whether the writer knows the target well enough to kill them. */
     public boolean knows(Player writer, OfflinePlayer target) {
+        Player online = target.getPlayer();
+        return knows(writer, target.getUniqueId(), online == null ? null : online.getLocation());
+    }
+
+    /**
+     * @param location where the target is now, or null if they are not in the world
+     */
+    public boolean knows(Player writer, UUID targetId, Location location) {
         switch (mode) {
             case NONE:
                 return true;
             case RADIUS: {
-                Player online = target.getPlayer();
-                if (online == null) return false;
+                if (location == null) return false;
                 if (radius <= 0) return true;
-                return online.getWorld().equals(writer.getWorld())
-                    && online.getLocation().distanceSquared(writer.getLocation()) <= radius * radius;
+                return writer.getWorld().equals(location.getWorld())
+                    && location.distanceSquared(writer.getLocation()) <= radius * radius;
             }
             default: {
-                Long seenAt = storage.getFaceMemory(writer.getUniqueId()).get(target.getUniqueId());
+                Long seenAt = storage.getFaceMemory(writer.getUniqueId()).get(targetId);
                 if (seenAt == null) return false;
                 return memoryMillis <= 0 || System.currentTimeMillis() - seenAt <= memoryMillis;
             }
@@ -160,7 +177,8 @@ public class FaceMemory {
             .sorted(Map.Entry.<UUID, Long>comparingByValue().reversed())
             .limit(limit)
             .forEach(entry -> {
-                String name = plugin.getServer().getOfflinePlayer(entry.getKey()).getName();
+                String name = dummies.getName(entry.getKey());
+                if (name == null) name = plugin.getServer().getOfflinePlayer(entry.getKey()).getName();
                 if (name != null) names.add(name);
             });
         return names;

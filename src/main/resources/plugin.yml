@@ -8,7 +8,7 @@ description: A modular plugin for server events and features
 commands:
   deathnote:
     description: Death Note management
-    usage: /deathnote <give|revoke|eyes|list|reload> [player]
+    usage: /deathnote <give|revoke|eyes|list|dummy|reload> [player]
     aliases: [dn]
     permission: breadland.deathnote.create
   godvanish:

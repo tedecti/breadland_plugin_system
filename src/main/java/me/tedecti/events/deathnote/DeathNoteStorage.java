@@ -93,7 +93,7 @@ public class DeathNoteStorage {
         }
 
         return new DeathEntry(id, bookId, target, asString(raw.get("target-name")), writer, asString(raw.get("writer-name")),
-            asString(raw.get("cause")), asString(raw.get("cause-text")), asLong(raw.get("written-at")), asLong(raw.get("death-at")), status);
+            asString(raw.get("cause")), asString(raw.get("cause-text")), asLong(raw.get("written-at")), asLong(raw.get("death-at")), Boolean.TRUE.equals(raw.get("dummy")), status);
     }
 
     public void save() {
@@ -117,6 +117,7 @@ public class DeathNoteStorage {
                 raw.put("cause-text", entry.getCauseText());
                 raw.put("written-at", entry.getWrittenAt());
                 raw.put("death-at", entry.getDeathAt());
+                if (entry.isDummy()) raw.put("dummy", true);
                 raw.put("status", entry.getStatus().name());
                 entries.add(raw);
             }

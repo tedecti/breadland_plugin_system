@@ -19,10 +19,11 @@ public class DeathEntry {
     private final String causeText; // What the writer actually typed, shown in the book
     private final long writtenAt;
     private final long deathAt;
+    private final boolean dummy; // Target is a test dummy, not a player
     private Status status;
 
     public DeathEntry(UUID id, UUID bookId, UUID target, String targetName, UUID writer, String writerName,
-                      String causeId, String causeText, long writtenAt, long deathAt, Status status) {
+                      String causeId, String causeText, long writtenAt, long deathAt, boolean dummy, Status status) {
         this.id = id;
         this.bookId = bookId;
         this.target = target;
@@ -33,6 +34,7 @@ public class DeathEntry {
         this.causeText = causeText;
         this.writtenAt = writtenAt;
         this.deathAt = deathAt;
+        this.dummy = dummy;
         this.status = status;
     }
 
@@ -46,6 +48,7 @@ public class DeathEntry {
     public String getCauseText() { return causeText; }
     public long getWrittenAt() { return writtenAt; }
     public long getDeathAt() { return deathAt; }
+    public boolean isDummy() { return dummy; }
     public Status getStatus() { return status; }
 
     public void setStatus(Status status) { this.status = status; }

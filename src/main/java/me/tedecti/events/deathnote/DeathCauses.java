@@ -5,7 +5,7 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.LivingEntity;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,7 +21,7 @@ public class DeathCauses {
     public enum Effect { NONE, FIRE, LIGHTNING, EXPLOSION, DROWN, FALL, FREEZE }
 
     public record Cause(String id, String name, List<String> aliases, Effect effect, String deathMessage) {
-        public void playEffect(Player victim) {
+        public void playEffect(LivingEntity victim) {
             Location location = victim.getLocation();
             World world = victim.getWorld();
             Location body = location.clone().add(0, 1, 0);

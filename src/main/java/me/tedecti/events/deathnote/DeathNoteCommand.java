@@ -13,11 +13,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * /deathnote give|revoke|eyes|list|reload. "/deathnote <player>" still works as "give".
+ * /deathnote give|revoke|eyes|list|dummy|reload. "/deathnote <player>" still works as "give".
  */
 public class DeathNoteCommand implements TabExecutor {
     private static final String ADMIN = "breadland.deathnote.admin";
-    private static final List<String> SUBCOMMANDS = List.of("give", "revoke", "eyes", "list", "reload");
+    private static final List<String> SUBCOMMANDS = List.of("give", "revoke", "eyes", "list", "dummy", "reload");
+    private static final List<String> DUMMY_ACTIONS = List.of("remove", "list", "clear");
 
     private final BreadlandPlugin plugin;
     private final DeathNoteManager deathNoteManager;
@@ -40,6 +41,7 @@ public class DeathNoteCommand implements TabExecutor {
             case "revoke" -> revoke(sender, args);
             case "eyes" -> eyes(sender, args);
             case "list" -> list(sender);
+            case "dummy" -> dummy(sender, args);
             case "reload" -> {
                 if (!checkAdmin(sender)) return true;
                 deathNoteManager.reloadConfig();
@@ -132,9 +134,56 @@ public class DeathNoteCommand implements TabExecutor {
             deathNoteManager.sendMessage(sender, "list-entry",
                 "%player%", entry.getTargetName(),
                 "%writer%", entry.getWriterName(),
-                "%cause%", entry.getCauseId(),
                 "%time%", TimeFormat.formatClock(entry.getSecondsLeft()));
         }
+    }
+
+    private void dummy(CommandSender sender, String[] args) {
+        if (!checkAdmin(sender)) return;
+        TestDummies dummies = deathNoteManager.getDummies();
+        String action = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "";
+
+        switch (action) {
+            case "clear" -> deathNoteManager.sendMessage(sender, "dummy-cleared", "%count%", String.valueOf(dummies.clear()));
+            case "list" -> {
+                List<String> names = dummies.getNames();
+                deathNoteManager.sendMessage(sender, "dummy-list",
+                    "%names%", names.isEmpty() ? "-" : String.join(", ", names));
+            }
+            case "remove" -> {
+                if (args.length < 3 || !dummies.remove(args[2])) {
+                    deathNoteManager.sendMessage(sender, "dummy-not-found", "%name%", args.length < 3 ? "?" : args[2]);
+                    return;
+                }
+                deathNoteManager.sendMessage(sender, "dummy-removed", "%name%", args[2]);
+            }
+            default -> {
+                if (!(sender instanceof Player player)) {
+                    deathNoteManager.sendMessage(sender, "player-only");
+                    return;
+                }
+
+                String name = action.isEmpty() ? nextDummyName(dummies) : args[1];
+                if (!name.matches("[A-Za-z0-9_]{3,16}")) {
+                    deathNoteManager.sendMessage(sender, "dummy-bad-name");
+                    return;
+                }
+                // Имя куклы не должно совпадать с ником игрока: тетрадь сначала ищет игроков
+                if (findPlayer(name) != null) {
+                    deathNoteManager.sendMessage(sender, "dummy-name-taken", "%name%", name);
+                    return;
+                }
+
+                dummies.spawn(player, name);
+                deathNoteManager.sendMessage(sender, "dummy-spawned", "%name%", name);
+            }
+        }
+    }
+
+    private String nextDummyName(TestDummies dummies) {
+        int number = 1;
+        while (dummies.find("Dummy" + number) != null) number++;
+        return "Dummy" + number;
     }
 
     private boolean checkAdmin(CommandSender sender) {
@@ -160,6 +209,10 @@ public class DeathNoteCommand implements TabExecutor {
             Bukkit.getOnlinePlayers().forEach(player -> options.add(player.getName()));
         } else if (args.length == 3 && args[0].equalsIgnoreCase("eyes") && args[1].equalsIgnoreCase("revoke")) {
             Bukkit.getOnlinePlayers().forEach(player -> options.add(player.getName()));
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("dummy")) {
+            options.addAll(DUMMY_ACTIONS);
+        } else if (args.length == 3 && args[0].equalsIgnoreCase("dummy") && args[1].equalsIgnoreCase("remove")) {
+            options.addAll(deathNoteManager.getDummies().getNames());
         }
 
         String prefix = args[args.length - 1].toLowerCase(Locale.ROOT);
