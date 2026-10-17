@@ -1,0 +1,206 @@
+// Checks that the plugin works on every supported Paper version, not only the one it is compiled against.
+//
+// For each version in `supportedPaperVersions`:
+//   compileAgainst<Version> - compiles the sources against that Paper API (source compatibility)
+//   checkBinary<Version>    - checks that every Bukkit/Paper/Adventure class, method and field the built
+//                             plugin uses exists in that API (binary compatibility: what actually runs)
+// Both run as part of `./gradlew check` (and so `./gradlew build`).
+
+import org.objectweb.asm.ClassReader
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.FieldVisitor
+import org.objectweb.asm.Handle
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
+
+import java.util.zip.ZipFile
+
+buildscript {
+    repositories { mavenCentral() }
+    dependencies { classpath 'org.ow2.asm:asm:9.7.1' }
+}
+
+// Packages that come from the server at runtime; everything else is the plugin itself or the JDK
+def serverPackages = ['org/bukkit/', 'io/papermc/', 'net/kyori/', 'com/destroystokyo/']
+
+class ApiClass {
+    String superName
+    List<String> interfaces = []
+    Set<String> methods = [] as Set // name + descriptor
+    Set<String> fields = [] as Set  // name + descriptor
+}
+
+def readApi = { Collection<File> jars ->
+    Map<String, ApiClass> api = [:]
+    jars.each { File jar ->
+        if (!jar.name.endsWith('.jar')) return
+        new ZipFile(jar).withCloseable { zip ->
+            zip.entries().each { entry ->
+                if (!entry.name.endsWith('.class')) return
+                def info = new ApiClass()
+                String className = null
+                zip.getInputStream(entry).withCloseable { input ->
+                    new ClassReader(input).accept(new ClassVisitor(Opcodes.ASM9) {
+                        void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+                            className = name
+                            info.superName = superName
+                            info.interfaces = (interfaces ?: []) as List
+                        }
+                        MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+                            info.methods << name + descriptor
+                            return null
+                        }
+                        FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
+                            info.fields << name + descriptor
+                            return null
+                        }
+                    }, ClassReader.SKIP_CODE)
+                }
+                if (className != null && !api.containsKey(className)) api[className] = info
+            }
+        }
+    }
+    return api
+}
+
+// Looks a member up the way the JVM does: the class, its superclasses, then all superinterfaces
+def hasMember
+hasMember = { Map<String, ApiClass> api, String owner, String member, boolean field, Set<String> seen = [] as Set ->
+    if (owner == null || !seen.add(owner)) return false
+    ApiClass info = api[owner]
+    if (info == null) {
+        // Owner outside the API jars (e.g. java/lang/Enum): assume the JDK provides it
+        return !serverPackages.any { owner.startsWith(it) }
+    }
+    if ((field ? info.fields : info.methods).contains(member)) return true
+    if (hasMember(api, info.superName, member, field, seen)) return true
+    return info.interfaces.any { hasMember(api, it, member, field, seen) }
+}
+
+def isServerClass = { String name -> name != null && serverPackages.any { name.startsWith(it) } }
+
+def collectUsages = { File classesDir ->
+    // Each usage: [kind, owner, member, where]
+    List<List<String>> usages = []
+    classesDir.eachFileRecurse { File file ->
+        if (!file.name.endsWith('.class')) return
+        String where = classesDir.toPath().relativize(file.toPath()).toString()
+
+        def addType
+        addType = { Type type ->
+            if (type.sort == Type.ARRAY) type = type.elementType
+            if (type.sort == Type.OBJECT) usages << ['class', type.internalName, null, where]
+            if (type.sort == Type.METHOD) {
+                addType(type.returnType)
+                type.argumentTypes.each { addType(it) }
+            }
+        }
+        def addHandle = { Handle handle ->
+            boolean field = handle.tag <= Opcodes.H_PUTSTATIC
+            usages << [field ? 'field' : 'method', handle.owner, handle.name + handle.desc, where]
+        }
+
+        file.withInputStream { input ->
+            new ClassReader(input).accept(new ClassVisitor(Opcodes.ASM9) {
+                void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+                    usages << ['class', superName, null, where]
+                    (interfaces ?: []).each { usages << ['class', it, null, where] }
+                }
+                FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
+                    addType(Type.getType(descriptor))
+                    return null
+                }
+                MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+                    addType(Type.getMethodType(descriptor))
+                    return new MethodVisitor(Opcodes.ASM9) {
+                        void visitMethodInsn(int opcode, String owner, String mName, String mDesc, boolean isInterface) {
+                            if (!owner.startsWith('[')) usages << ['method', owner, mName + mDesc, where]
+                        }
+                        void visitFieldInsn(int opcode, String owner, String fName, String fDesc) {
+                            usages << ['field', owner, fName + fDesc, where]
+                        }
+                        void visitTypeInsn(int opcode, String type) {
+                            addType(type.startsWith('[') ? Type.getType(type) : Type.getObjectType(type))
+                        }
+                        void visitLdcInsn(Object value) {
+                            if (value instanceof Type) addType(value)
+                            if (value instanceof Handle) addHandle(value)
+                        }
+                        void visitInvokeDynamicInsn(String dName, String dDesc, Handle bootstrap, Object... args) {
+                            addType(Type.getMethodType(dDesc))
+                            args.each { arg ->
+                                if (arg instanceof Handle) addHandle(arg)
+                                if (arg instanceof Type) addType(arg)
+                            }
+                        }
+                    }
+                }
+            }, 0)
+        }
+    }
+    return usages.findAll { isServerClass(it[1]) }
+}
+
+def checkTasks = []
+
+supportedPaperVersions.each { String paperVersion ->
+    String suffix = paperVersion.replace('.', '_')
+    def configuration = configurations.create("paperApi${suffix}")
+    dependencies.add(configuration.name, "io.papermc.paper:paper-api:${paperVersion}-R0.1-SNAPSHOT")
+
+    def compileTask = tasks.register("compileAgainst${suffix}", JavaCompile) {
+        group = 'verification'
+        description = "Compiles the plugin against Paper API ${paperVersion}"
+        source = sourceSets.main.java
+        classpath = configuration
+        destinationDirectory = layout.buildDirectory.dir("compat/${paperVersion}/classes")
+        options.encoding = 'UTF-8'
+        options.release = 21
+    }
+
+    def binaryTask = tasks.register("checkBinary${suffix}") {
+        group = 'verification'
+        description = "Checks that the built plugin only uses API present in Paper ${paperVersion}"
+        dependsOn tasks.named('classes')
+        inputs.files(configuration)
+        inputs.files(sourceSets.main.output.classesDirs)
+        def marker = layout.buildDirectory.file("compat/${paperVersion}/binary-ok")
+        outputs.file(marker)
+
+        doLast {
+            Map<String, ApiClass> api = readApi(configuration.files)
+            Set<String> problems = [] as Set
+            sourceSets.main.output.classesDirs.files.findAll { it.exists() }.each { File dir ->
+                collectUsages(dir).each { kind, owner, member, where ->
+                    String readableOwner = owner.replace('/', '.')
+                    if (!api.containsKey(owner)) {
+                        problems << "${where}: class ${readableOwner} is missing"
+                    } else if (kind == 'method' && !hasMember(api, owner, member, false)) {
+                        problems << "${where}: method ${readableOwner}.${member} is missing"
+                    } else if (kind == 'field' && !hasMember(api, owner, member, true)) {
+                        problems << "${where}: field ${readableOwner}.${member} is missing"
+                    }
+                }
+            }
+
+            if (!problems.isEmpty()) {
+                throw new GradleException("Plugin is not compatible with Paper ${paperVersion}:\n  " + problems.sort().join('\n  '))
+            }
+            def file = marker.get().asFile
+            file.parentFile.mkdirs()
+            file.text = "ok\n"
+            logger.lifecycle("Paper ${paperVersion}: compatible")
+        }
+    }
+
+    checkTasks << compileTask << binaryTask
+}
+
+tasks.register('checkCompat') {
+    group = 'verification'
+    description = 'Checks the plugin against every supported Paper version'
+    dependsOn checkTasks
+}
+
+tasks.named('check') { dependsOn 'checkCompat' }

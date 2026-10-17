@@ -14,16 +14,18 @@ repositories {
     }
 }
 
+// The plugin is compiled against the oldest supported version and checked against all of them
+// (see gradle/compat-check.gradle). Add a version here to support it.
+ext.supportedPaperVersions = ['1.21.8', '1.21.11']
+
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:${supportedPaperVersions.first()}-R0.1-SNAPSHOT")
 }
 
 tasks {
     runServer {
-        // Configure the Minecraft version for our task.
-        // This is the only required configuration besides applying the plugin.
-        // Your plugin's jar (or shadowJar if present) will be used automatically.
-        minecraftVersion("1.21.8")
+        // ./gradlew runServer -PmcVersion=1.21.11 to try another supported version
+        minecraftVersion(project.findProperty('mcVersion') ?: supportedPaperVersions.first())
     }
 }
 
@@ -61,3 +63,5 @@ tasks.register('deployToServer', Copy) {
     into layout.projectDirectory.dir('server/plugins')
     rename { 'BreadlandPlugin.jar' }
 }
+
+apply from: 'gradle/compat-check.gradle'
